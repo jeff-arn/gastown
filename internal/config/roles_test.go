@@ -61,7 +61,7 @@ func TestLoadBuiltinRoleDefinition(t *testing.T) {
 			name:          "dog",
 			role:          "dog",
 			wantScope:     "town",
-			wantPattern:   "gt-dog-{name}",
+			wantPattern:   "hq-dog-{name}",
 			wantPreSync:   false,
 		},
 	}

@@ -38,8 +38,8 @@ var deaconCmd = &cobra.Command{
 	RunE:    requireSubcommand,
 	Long: `Manage the Deacon - the town-level watchdog for Gas Town.
 
-The Deacon ("daemon beacon") is the only agent that receives mechanical
-heartbeats from the daemon. It monitors system health across all rigs:
+The Deacon ("daemon beacon") is the only agent that sends mechanical
+heartbeats to the daemon. It monitors system health across all rigs:
   - Watches all Witnesses (are they alive? stuck? responsive?)
   - Manages Dogs for cross-rig infrastructure work
   - Handles lifecycle requests (respawns, restarts)
