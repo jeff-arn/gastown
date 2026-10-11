@@ -46,6 +46,8 @@ const (
 	AgentOmp AgentPreset = "omp"
 	// AgentMistral is Mistral Vibe CLI.
 	AgentMistral AgentPreset = "vibe"
+	// AgentMuse is Muse Code (Meta Muse Spark).
+	AgentMuse AgentPreset = "muse"
 	// AgentGroqCompound routes the Claude CLI to Groq's compound-beta model via
 	// Groq's OpenAI-compatible API endpoint. The claude binary acts as the SDK
 	// proxy; ANTHROPIC_BASE_URL and ANTHROPIC_API_KEY are overridden at runtime
@@ -490,6 +492,36 @@ var builtinPresets = map[AgentPreset]*AgentPresetInfo{
 		ReadyPromptPrefix: "❯ ",
 		ReadyDelayMs:      5000,
 		InstructionsFile:  "AGENTS.md",
+	},
+	// AgentMuse is Muse Code (Meta Muse Spark), the default agent in this
+	// town (GT_AGENT=muse). Observed launch shape (ps, all town sessions):
+	//   muse --trust-workspace --approval-mode never --disable-sandbox
+	// The `muse` wrapper execs a versioned muse-bin-<ver> binary, so the
+	// tmux pane command is a truncated kernel comm ("muse-bin-1.4.4-");
+	// ProcessNames covers the stable names. The TUI shares Claude Code's
+	// conventions (❯ prompt, "esc to interrupt" busy indicator), observed
+	// via tmux capture-pane — so prompt-based idle detection works, but
+	// Escape aborts in-flight generation and must be skipped during nudge
+	// delivery. Gas Town has no muse hook adapter, so queued nudges drain
+	// via the background nudge-poller (no turn-boundary drain).
+	AgentMuse: {
+		Name:         AgentMuse,
+		Command:      "muse",
+		Args:         []string{"--trust-workspace", "--approval-mode", "never", "--disable-sandbox"},
+		ProcessNames: []string{"muse", "muse-bin"},
+		SessionIDEnv: "MUSE_SESSION_ID",
+		ResumeFlag:   "resume",
+		ResumeStyle:  "subcommand",
+		NonInteractive: &NonInteractiveConfig{
+			Subcommand: "exec",
+			OutputFlag: "--json",
+		},
+		// Runtime defaults
+		PromptMode:           "arg",
+		ReadyPromptPrefix:    "❯ ",
+		ReadyDelayMs:         10000,
+		InstructionsFile:     "AGENTS.md",
+		EscapeCancelsRequest: true, // TUI shows "esc to interrupt"; Escape aborts generation
 	},
 	// AgentGroqCompound uses the Claude CLI as an SDK proxy but routes all
 	// requests to Groq's OpenAI-compatible endpoint by overriding the two

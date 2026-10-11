@@ -32,7 +32,7 @@ func TestBuiltInAgentPresetSummary(t *testing.T) {
 func TestBuiltinPresets(t *testing.T) {
 	t.Parallel()
 	// Ensure all built-in presets are accessible
-	presets := []AgentPreset{AgentClaude, AgentGemini, AgentCodex, AgentKiro, AgentCursor, AgentAuggie, AgentAmp, AgentOpenCode, AgentCopilot, AgentPi, AgentOmp}
+	presets := []AgentPreset{AgentClaude, AgentGemini, AgentCodex, AgentKiro, AgentCursor, AgentAuggie, AgentAmp, AgentOpenCode, AgentCopilot, AgentPi, AgentOmp, AgentMuse}
 
 	for _, preset := range presets {
 		info := GetAgentPreset(preset)
@@ -71,6 +71,7 @@ func TestGetAgentPresetByName(t *testing.T) {
 		{"copilot", AgentCopilot, false},   // Built-in GitHub Copilot CLI agent
 		{"pi", AgentPi, false},             // Pi Coding Agent
 		{"omp", AgentOmp, false},           // Oh My Pi
+		{"muse", AgentMuse, false},         // Muse Code
 		{"unknown", "", true},
 	}
 
@@ -104,6 +105,7 @@ func TestRuntimeConfigFromPreset(t *testing.T) {
 		{AgentAuggie, "auggie"},
 		{AgentAmp, "amp"},
 		{AgentCopilot, "copilot"},
+		{AgentMuse, "muse"},
 	}
 
 	for _, tt := range tests {
@@ -155,6 +157,7 @@ func TestIsKnownPreset(t *testing.T) {
 		{"copilot", true},  // Built-in GitHub Copilot CLI agent
 		{"pi", true},       // Pi Coding Agent
 		{"omp", true},      // Oh My Pi
+		{"muse", true},     // Muse Code
 		{"unknown", false},
 		{"chatgpt", false},
 	}
@@ -773,7 +776,7 @@ func TestGetProcessNames(t *testing.T) {
 func TestListAgentPresetsMatchesConstants(t *testing.T) {
 	t.Parallel()
 	// Ensure all AgentPreset constants are returned by ListAgentPresets
-	allConstants := []AgentPreset{AgentClaude, AgentGemini, AgentCodex, AgentCursor, AgentAuggie, AgentAmp, AgentOpenCode, AgentCopilot, AgentPi, AgentOmp}
+	allConstants := []AgentPreset{AgentClaude, AgentGemini, AgentCodex, AgentCursor, AgentAuggie, AgentAmp, AgentOpenCode, AgentCopilot, AgentPi, AgentOmp, AgentMuse}
 	presets := ListAgentPresets()
 
 	// Convert to map for quick lookup
@@ -839,6 +842,11 @@ func TestAgentCommandGeneration(t *testing.T) {
 			preset:       AgentCopilot,
 			wantCommand:  "copilot",
 			wantContains: []string{"--yolo"},
+		},
+		{
+			preset:       AgentMuse,
+			wantCommand:  "muse",
+			wantContains: []string{"--trust-workspace", "--approval-mode", "never", "--disable-sandbox"},
 		},
 	}
 
@@ -974,6 +982,110 @@ func TestKiroAgentPreset(t *testing.T) {
 	}
 	if info.InstructionsFile != "AGENTS.md" {
 		t.Errorf("kiro InstructionsFile = %q, want AGENTS.md", info.InstructionsFile)
+	}
+}
+
+func TestMuseAgentPreset(t *testing.T) {
+	t.Parallel()
+
+	info := GetAgentPreset(AgentMuse)
+	if info == nil {
+		t.Fatal("muse preset not found")
+	}
+
+	if info.Command != "muse" {
+		t.Errorf("muse Command = %q, want muse", info.Command)
+	}
+	wantArgs := []string{"--trust-workspace", "--approval-mode", "never", "--disable-sandbox"}
+	if len(info.Args) != len(wantArgs) {
+		t.Fatalf("muse Args = %v, want %v", info.Args, wantArgs)
+	}
+	for i, want := range wantArgs {
+		if info.Args[i] != want {
+			t.Errorf("muse Args[%d] = %q, want %q", i, info.Args[i], want)
+		}
+	}
+
+	// Process names: `muse` wrapper execs a versioned muse-bin-<ver> binary.
+	seen := make(map[string]bool, len(info.ProcessNames))
+	for _, n := range info.ProcessNames {
+		seen[n] = true
+	}
+	for _, name := range []string{"muse", "muse-bin"} {
+		if !seen[name] {
+			t.Errorf("muse ProcessNames missing %q (got %v)", name, info.ProcessNames)
+		}
+	}
+	if info.SessionIDEnv != "MUSE_SESSION_ID" {
+		t.Errorf("muse SessionIDEnv = %q, want MUSE_SESSION_ID", info.SessionIDEnv)
+	}
+	if info.ResumeFlag != "resume" {
+		t.Errorf("muse ResumeFlag = %q, want resume", info.ResumeFlag)
+	}
+	if info.ResumeStyle != "subcommand" {
+		t.Errorf("muse ResumeStyle = %q, want subcommand", info.ResumeStyle)
+	}
+	if info.SupportsHooks {
+		t.Error("muse SupportsHooks should remain false until Gas Town has a muse hook adapter")
+	}
+	if info.HasTurnBoundaryDrain {
+		t.Error("muse HasTurnBoundaryDrain should be false so queued nudges drain via the nudge-poller")
+	}
+	if info.NonInteractive == nil {
+		t.Fatal("muse NonInteractive should model `muse exec --json` headless runs")
+	}
+	if info.NonInteractive.Subcommand != "exec" {
+		t.Errorf("muse NonInteractive.Subcommand = %q, want exec", info.NonInteractive.Subcommand)
+	}
+	if info.NonInteractive.OutputFlag != "--json" {
+		t.Errorf("muse NonInteractive.OutputFlag = %q, want --json", info.NonInteractive.OutputFlag)
+	}
+	// Prompt-based idle detection: muse TUI uses the Claude-style ❯ prompt.
+	if info.ReadyPromptPrefix != "❯ " {
+		t.Errorf("muse ReadyPromptPrefix = %q, want ❯ prompt prefix", info.ReadyPromptPrefix)
+	}
+	if info.ReadyDelayMs != 10000 {
+		t.Errorf("muse ReadyDelayMs = %d, want 10000", info.ReadyDelayMs)
+	}
+	if !info.EscapeCancelsRequest {
+		t.Error("muse EscapeCancelsRequest should be true (TUI shows esc to interrupt)")
+	}
+	if info.InstructionsFile != "AGENTS.md" {
+		t.Errorf("muse InstructionsFile = %q, want AGENTS.md", info.InstructionsFile)
+	}
+}
+
+func TestMusePresetResolutionAndFallback(t *testing.T) {
+	t.Parallel()
+	ResetRegistryForTesting()
+	t.Cleanup(ResetRegistryForTesting)
+
+	// The muse preset resolves by name.
+	if info := GetAgentPresetByName("muse"); info == nil || info.Name != AgentMuse {
+		t.Fatalf("GetAgentPresetByName(muse) = %+v, want muse preset", info)
+	}
+	// Process names resolve through the preset (GT_PROCESS_NAMES wiring).
+	got := ResolveProcessNames("muse", "muse")
+	want := []string{"muse", "muse-bin"}
+	if len(got) != len(want) {
+		t.Fatalf("ResolveProcessNames(muse, muse) = %v, want %v", got, want)
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			t.Errorf("ResolveProcessNames(muse, muse)[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+	if names := GetProcessNames("muse"); len(names) != 2 || names[0] != "muse" || names[1] != "muse-bin" {
+		t.Errorf("GetProcessNames(muse) = %v, want [muse muse-bin]", names)
+	}
+	// Fallback coverage: unknown agents still get Claude defaults so
+	// liveness detection degrades gracefully instead of returning nothing.
+	fallback := GetProcessNames("some-unknown-agent")
+	if len(fallback) != 2 || fallback[0] != "node" || fallback[1] != "claude" {
+		t.Errorf("GetProcessNames(unknown) = %v, want [node claude] fallback", fallback)
+	}
+	if info := GetAgentPresetByName("some-unknown-agent"); info != nil {
+		t.Errorf("GetAgentPresetByName(unknown) = %+v, want nil", info)
 	}
 }
 
