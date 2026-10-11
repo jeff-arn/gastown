@@ -87,8 +87,10 @@ Delivery modes (--mode):
   queue      Write to a file queue; agent picks up via hook at next turn
              boundary. Zero interruption. Use for non-urgent coordination.
   immediate  Send directly via tmux send-keys. Interrupts in-flight work
-             but guarantees immediate delivery. Use only when you need to
-             break through (e.g., stuck agent, emergency).
+             but guarantees immediate delivery. If a question/selection
+             prompt is open, the nudge is queued instead of dismissing it.
+             Use only when you need to break through (e.g., stuck agent,
+             emergency).
 
 Queue and wait-idle modes require a drain mechanism. Claude agents drain
 via UserPromptSubmit hook; other agents use a background nudge-poller
@@ -301,7 +303,25 @@ func deliverNudge(t *tmux.Tmux, sessionName, message, sender string) error {
 				opts.SkipEscape = true
 			}
 		}
-		return t.NudgeSessionWithOpts(sessionName, prefixedMessage, opts)
+		if err := t.NudgeSessionWithOpts(sessionName, prefixedMessage, opts); err != nil {
+			// Prompt-preserving fork: an interactive question/selection UI
+			// is open in the target session. Immediate send-keys would
+			// dismiss the dialog and lose the pending selection, so queue
+			// the nudge instead — it drains on a later turn boundary.
+			if errors.Is(err, tmux.ErrQuestionPromptOpen) && townRoot != "" {
+				fmt.Fprintf(os.Stderr, "immediate: question prompt open in %s, queueing nudge instead\n", sessionName)
+				if qErr := nudge.Enqueue(townRoot, sessionName, nudge.QueuedNudge{
+					Sender:   sender,
+					Message:  message,
+					Priority: nudgePriorityFlag,
+				}); qErr != nil {
+					return fmt.Errorf("queue fallback for open question prompt failed: %v (original: %w)", qErr, err)
+				}
+				return nil
+			}
+			return err
+		}
+		return nil
 	}
 }
 

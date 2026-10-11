@@ -1802,6 +1802,16 @@ func (t *Tmux) NudgeSessionWithOpts(session, message string, opts NudgeOpts) err
 		target = t.canonicalPaneTarget(session, agentPane)
 	}
 
+	// 0a. Prompt-preserving fork: refuse delivery when an interactive
+	// question/selection UI is open. Immediate send-keys (text + Escape +
+	// Enter) would dismiss the dialog and lose the pending selection.
+	// Callers translate this sentinel into a queue write so the nudge
+	// drains on a later turn boundary instead. No keys are sent before
+	// this check — not even the Rewind dismiss below.
+	if t.isInQuestionPrompt(target) {
+		return fmt.Errorf("nudge to session %q: %w", session, ErrQuestionPromptOpen)
+	}
+
 	// 0. Pre-delivery: dismiss Rewind menu if the session is stuck in it.
 	// A previous nudge or user action may have triggered Claude Code's
 	// double-Escape Rewind UI, which captures all input. Dismiss it first
@@ -1897,6 +1907,13 @@ func (t *Tmux) NudgePane(pane, message string) error {
 		return fmt.Errorf("nudge lock timeout for pane %q: previous nudge may be hung", pane)
 	}
 	defer releaseNudgeLock(pane)
+
+	// 0a. Prompt-preserving fork: refuse delivery when an interactive
+	// question/selection UI is open (see NudgeSessionWithOpts). No keys
+	// are sent before this check.
+	if t.isInQuestionPrompt(pane) {
+		return fmt.Errorf("nudge to pane %q: %w", pane, ErrQuestionPromptOpen)
+	}
 
 	// 0. Pre-delivery: dismiss Rewind menu if active. (GH#gt-8el)
 	if t.isInRewindMode(pane) {
